@@ -8,15 +8,28 @@ var cors        = require('cors');
 var apiRoutes         = require('./routes/api.js');
 var fccTestingRoutes  = require('./routes/fcctesting.js');
 var runner            = require('./test-runner');
+var helmet            = require('helmet');
 
 var app = express();
 
 app.use('/public', express.static(process.cwd() + '/public'));
-
+app.use(helmet.dnsPrefetchControl());
+app.use(helmet.frameguard({action: 'sameorigin'}));
+app.use(helmet.referrerPolicy({ policy: 'same-origin' }));
 app.use(cors({origin: '*'})); //For FCC testing purposes only
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+//Sample front-end
+app.route('/b/:board/')
+  .get(function (req, res) {
+    res.sendFile(process.cwd() + '/views/board.html');
+  });
+app.route('/b/:board/:threadid')
+  .get(function (req, res) {
+    res.sendFile(process.cwd() + '/views/thread.html');
+  });
 
 //Index page (static HTML)
 app.route('/')
@@ -28,7 +41,10 @@ app.route('/')
 fccTestingRoutes(app);
 
 //Routing for API 
-apiRoutes(app);  
+apiRoutes(app);
+
+//Sample Front-end
+
     
 //404 Not Found Middleware
 app.use(function(req, res, next) {
@@ -50,7 +66,7 @@ app.listen(process.env.PORT || 3000, function () {
           console.log('Tests are not valid:');
           console.log(error);
       }
-    }, 3500);
+    }, 1500);
   }
 });
 
