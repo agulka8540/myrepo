@@ -2,20 +2,19 @@
 
 var express     = require('express');
 var bodyParser  = require('body-parser');
+var expect      = require('chai').expect;
 var cors        = require('cors');
 
 var apiRoutes         = require('./routes/api.js');
 var fccTestingRoutes  = require('./routes/fcctesting.js');
 var runner            = require('./test-runner');
-var helmet            = require('helmet');
 
 var app = express();
 
 app.use('/public', express.static(process.cwd() + '/public'));
 
-app.use(cors({origin: '*'})); //USED FOR FCC TESTING PURPOSES ONLY!
-app.use(helmet.noCache());
-app.use(helmet.hidePoweredBy({ setTo: 'PHP 4.2.0' }));
+app.use(cors({origin: '*'})); //For FCC testing purposes only
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -51,8 +50,8 @@ app.listen(process.env.PORT || 3000, function () {
           console.log('Tests are not valid:');
           console.log(error);
       }
-    }, 1500);
+    }, 3500);
   }
 });
 
-module.exports = app; //for unit/functional testing
+module.exports = app; //for testing

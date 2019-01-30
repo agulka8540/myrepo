@@ -2,126 +2,107 @@
 *
 *
 *       Complete the API routing below
-*       
-*       
+*
+*
 */
 
 'use strict';
 
 var expect = require('chai').expect;
-var MongoClient = require('mongodb').MongoClient;
-var ObjectId = require('mongodb').ObjectId;
-const MONGODB_CONNECTION_STRING = process.env.DB;
+var MongoClient = require('mongodb');
+var request = require('request');
+var requestIp = require('request-ip');
 
-MongoClient.connect(MONGODB_CONNECTION_STRING, function(err, db) {
+const CONNECTION_STRING = process.env.DB; //MongoClient.connect(CONNECTION_STRING, function(err, db) {});
+MongoClient.connect(CONNECTION_STRING, function(err, db) {//create 'stocks' collection
   if(err) {throw err;}
   
   const dbo = db.db("fcc-challenges-db");  
-  dbo.createCollection('books', function (err, result){
-    if (err) {throw err;}
-    
-    console.log("collection created");
+  dbo.createCollection('stocks', function(err, result){
+    if(err) {throw err;}    
+    console.log("Collection created!");
+    db.close();
   });
 });
 
+
 module.exports = function (app) {
 
-  app.route('/api/books')
+  app.route('/api/stock-prices')
     .get(function (req, res){
-      //response will be array of book objects
-      //json res format: [{"_id": bookid, "title": book_title, "commentcount": num_of_comments },...]
-      MongoClient.connect(MONGODB_CONNECTION_STRING, function (err,db) {
-        if(err) {throw err;}
-        
-        const dbo = db.db("fcc-challenges-db");
-        dbo.collection('books').find({}).toArray(function(err, result) {
-          if (err) {throw err;}
-          
-          res.json(result);
-        });
-      });
-    })
+      var stock = req.query.stock;
+      var IPaddress = requestIp.getClientIp(req); console.log("my IP is " + IPaddress);
     
-    .post(function (req, res){
-      var title = req.body.title;
-      //response will contain new book object including at least _id and title
-      MongoClient.connect(MONGODB_CONNECTION_STRING, function (err,db) {
-        if(err) {throw err;}
-        //findOneAndUpdate({_id: ObjectId(req.body._id)}
-        const dbo = db.db("fcc-challenges-db");
-        dbo.collection('books').insertOne({title: title}, function(err, result) {
-          if(err) {throw err;}
-          
-          res.json({title: title, _id: result.insertedId});
-        });
-      });
-    })
-    
-    .delete(function(req, res){
-      //if successful response will be 'complete delete successful'
-      MongoClient.connect(MONGODB_CONNECTION_STRING, function (err,db) {
-        if(err) {throw err;}
-        
-        const dbo = db.db("fcc-challenges-db");
-        dbo.collection('books').deleteMany({}, function(err, result) {
-          if(err) {throw err;}
-          console.log("delete");
-          res.send("complete delete successful");
-        });
-      });
-    });
-
-
-
-  app.route('/api/books/:id')
-    .get(function (req, res){
-    //json res format: {"_id": bookid, "title": book_title, "comments": [comment,comment,...]}
-      var bookid = req.params.id;
-    
-      MongoClient.connect(MONGODB_CONNECTION_STRING, function (err,db) {
-        if(err) {throw err;}
-        
-        const dbo = db.db("fcc-challenges-db");
-        dbo.collection('books').findOne({_id: ObjectId(bookid)}, function(err, result) {
-          if(err) {throw err;}
-          
-          console.log("");
-          res.json(result);
-        });
-      });    
-    })
-    
-    .post(function(req, res){ //json res format same as .get
-      var bookid = req.params.id;
-      var comment = req.body.comment;
-      MongoClient.connect(MONGODB_CONNECTION_STRING, function (err,db) {
-        if(err) {throw err;}
-        
-        const dbo = db.db("fcc-challenges-db");
-        dbo.collection('books').findOneAndUpdate({_id: ObjectId(bookid)},{$push: {comments: comment}}, function(err, result) {
-          if(err) {throw err;}
-          
-          console.log("");
-          res.json(result);
-        });
-      });   
+      if(!Array.isArray(stock)) {//if only 1 stock symbol submitted and get parameter is not array
+        stock = [stock];} //it should be transformed into array for consistency
       
-    })
+      var stockDataObject = {};
+      var responseCounter = 0;
+      // Convert all stock symbols to upper case. 
+      stock = stock.map(function(symb){
+        return symb.toUpperCase();
+      });
+                
+      stock.forEach(function(stockSymbol) {
+        stockDataObject[stockSymbol] = {stock: stockSymbol, price: -1, likes: -1};
+      });
+      console.log(stock);
     
-    .delete(function(req, res){
-      var bookid = req.params.id;
-      //if successful response will be 'delete successful'
-      MongoClient.connect(MONGODB_CONNECTION_STRING, function (err,db) {
-        if(err) {throw err;}
-        
-        const dbo = db.db("fcc-challenges-db");
-        dbo.collection('books').deleteOne({_id: ObjectId(bookid)}, function(err, result) {
+      stock.forEach(function(stockSymbol) {
+        var url = `https://api.iextrading.com/1.0/stock/${stockSymbol}/price`;//stock price api, returns a number
+
+        request(url, function (error, response, body) {
+            stockDataObject[stockSymbol].price = body;
+            ++responseCounter;
+            checkComplete(stockDataObject);
+          });
+       
+        if (req.query.like === "true") {//if "like" checkbox selected 
+          MongoClient.connect(CONNECTION_STRING, function(err,db) { //insert this info into the database
+            if(err) {throw err;}
+            
+            const dbo = db.db("fcc-challenges-db"); 
+            //database query searching for stock symbol, inserting IP address and creating new entry if doesn't exist already (upsert)
+            dbo.collection('stocks').findOneAndUpdate({stock: stockSymbol}, {$addToSet: {likes: IPaddress}}, {upsert: true},  function (err, result) {
+              if(err) {throw err;}                
+
+              console.log("like for " + stockSymbol +" updated");
+              db.close();
+            });                 
+          });                  
+        }
+        MongoClient.connect(CONNECTION_STRING, function(err,db) { //if "like" is not selected, query the number of likes 
           if(err) {throw err;}
-          
-          console.log("book deleted");
-          res.send("delete successful");
-        });
-      });   
-    });
-  
+
+          const dbo = db.db("fcc-challenges-db");
+          dbo.collection('stocks').findOne({stock: stockSymbol}, function (err, result) {
+            if(err) {throw err;}
+            
+            //if stock is not in the database and null is returned, likes need to be 0, otherwise error
+            var likes; 
+            if(result == null) {likes = 0;}
+            else {likes = result.likes.length;}
+            
+            stockDataObject[stockSymbol].likes = likes;
+            ++responseCounter;
+            checkComplete(stockDataObject);
+            db.close();
+          });                 
+        });  
+        function checkComplete(stockDataObject) {
+          if(responseCounter == 2 * stock.length) {
+            console.log(stockDataObject);
+            //If I pass along 2 stocks, the return object will be an array with both stock's info but instead of likes, 
+            //it will display rel_likes(the difference between the likes on both) on both
+            if(stock.length == 2) {
+              stockDataObject[ stock[0] ].rel_likes = stockDataObject[ stock[1] ].likes - stockDataObject[ stock[0] ].likes;
+              stockDataObject[ stock[1] ].rel_likes = stockDataObject[ stock[0] ].likes - stockDataObject[ stock[1] ].likes;
+              delete stockDataObject[ stock[0] ].likes;
+              delete stockDataObject[ stock[1] ].likes;
+            }
+            res.json({stockData: stockDataObject});
+          }
+        }  
+      });
+  });
 };
